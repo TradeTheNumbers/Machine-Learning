@@ -1,0 +1,112 @@
+---
+title: "Practical Machine Learning Course Project Report"
+author: "Adam O'Dell"
+date: "September 21, 2015"
+output:
+  html_document:
+    toc: yes
+---
+
+```{r, echo = F, message = F}
+library(ggplot2)
+library(caret)
+library(randomForest)
+```
+
+### Load data 
+* Load raw data sets (training and test). 
+* Clean the data sets, including:
+** Remove near-zero covariates and any variables with more than 80% missing values. These won't be useful for prediction.        
+** Calculate correlations between each remaining variable and the response, `classe`, using `spearman` rank correlation.                 
+** Plot the two variables with the highest correlation to `classe` and color the plot based on `classe`.            
+
+```{r}
+
+# load initial data sets
+training <- read.csv("pml-training.csv", row.names = 1)
+testing <- read.csv("pml-testing.csv", row.names = 1)
+
+# remove near-zero covariates
+nsv <- nearZeroVar(training, saveMetrics = T)
+training <- training[, !nsv$nzv]
+
+# remove variables where 80% of values are missing 
+nav <- sapply(colnames(training), function(x) if(sum(is.na(training[, x])) > 0.8*nrow(training)){return(T)}else{return(F)})
+training <- training[, !nav]
+
+# calculate multi-variate correlations
+cor <- abs(sapply(colnames(training[, -ncol(training)]), function(x) cor(as.numeric(training[, x]), as.numeric(training$classe), method = "spearman")))
+```
+
+
+With filtering complete, we see that the training set has 19622 samples and 57 potential predictors.          
+
+Visual inspection shows a lack of discernable correlation between any one variable and `classe` so we will investigate random forest and boosting models rather than linear models.         
+
+### Boosting model
+* First we'll fit a model with a boosting algorithm and 10-fold cross validation.    
+    
+
+```{r, eval=FALSE}
+boostFit <- train(classe ~ ., method = "gbm", data = training, verbose = F, trControl = trainControl(method = "cv", number = 10))
+```
+
+* We'll then plot the accuracy of this model.  
+
+```{r, eval=FALSE}
+
+plot(boostFit, ylim = c(0.9, 1))
+```
+
+This looks to be a good model, with a reported __accuracy = 0.997__. 
+
+### Random forests model   
+* Next, we'll fit a model using the random forests approach, again with a 10-fold cross validation procedure.    
+   
+
+```{r, eval=FALSE}
+set.seed(123)
+rfFit <- train(classe ~ ., method = "rf", data = training, importance = T, trControl = trainControl(method = "cv", number = 10))
+```
+
+* And now we'll plot the accuracy of this model:
+
+```{r, eval=FALSE}
+plot(rfFit, ylim = c(0.9, 1))
+```
+
+```{r, eval=FALSE}
+imp <- varImp(rfFit)$importance
+imp$max <- apply(imp, 1, max)
+imp <- imp[order(imp$max, decreasing = T), ]
+```
+
+This random forests model also produced a very accuract prediction. With an __accuracy close to 1__, it is slightly better than the boosting model.                  
+
+### Final model selection and test-set predictions
+
+* The final random forests model contains 500 trees with 40 variables tried at each split.                  
+* The estimated __out of sample error rate__ for this model is __0.04%__. 
+
+* Finally, we'll predict the `classe` variable for the 20 test-set case. And a handy function with automatically output the results of our test-set predictions.      
+
+```{r, eval=FALSE
+# final model
+rfFit$finalModel
+# prediction
+(prediction <- as.character(predict(rfFit, testing)))
+```
+```{r, eval=FALSE}
+# write prediction files
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("./problem_id_", i, ".txt")
+    write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, col.names = FALSE)
+  }
+}
+pml_write_files(prediction)
+```
+
+
+* And that concludes this study. We have shown how a random forests model can be used to predict whether an exercise was done properly or not. 
